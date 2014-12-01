@@ -3,3 +3,7 @@ scramlkb: scramlkb.ml
 
 test: scramlkb
 	./scramlkb | cat
+
+clean:
+	rm *.o *.cmi *.cmx scramlkb 2>/dev/null || true
+
