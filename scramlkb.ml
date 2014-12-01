@@ -24,16 +24,20 @@ let get1char () : (char)=
   let termio = Unix.tcgetattr Unix.stdin in
   let () =
     Unix.tcsetattr Unix.stdin Unix.TCSAFLUSH
-	      { termio with
+	      { (Unix.tcgetattr Unix.stdin) with
         Unix.c_icanon = false; (* turn off line-editing and input parsing *)
-        Unix.c_echo = false (* turn off local echo *)
-      } in 
+        (* turn off local echo: *)
+        Unix.c_echo = false;
+        Unix.c_echoe = false;
+        Unix.c_echok = false;
+        Unix.c_echonl = false
+      } in
     let res = input_char (in_channel_of_descr stdin) in
     Unix.tcsetattr Unix.stdin Unix.TCSADRAIN termio;
     res
 
 let display_layout ~display ~alphabet ~remapped_alphabet =
-  let linux_movehome= "\x1b[H"      (* move cursor home *)
+  let linux_movehome= "\x1b[H\x1b[2J"      (* move cursor home + clear *)
   and kbd_color     = "\x1b[1;33m"  (* bold; yellow *)
   and key_color     = "\x1b[2;31m"  (* dim; red *)
   and clear_color   = "\x1b[39;49;21;22;24m" (* reset fg, bg, bold, dim, underline *)
