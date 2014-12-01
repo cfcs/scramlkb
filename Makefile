@@ -1,5 +1,5 @@
 scramlkb: scramlkb.ml
-	ocamlbuild -lib unix scramlkb.native
+	ocamlfind ocamlopt -package unix,bytes -linkpkg scramlkb.ml -o scramlkb
 
 test: scramlkb
-	./scramlkb.native | cat
+	./scramlkb | cat
