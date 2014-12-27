@@ -119,16 +119,30 @@ let retrieve_key_entry ~random_char ~display ~output =
 let () =
   let random_char = _random_unbiased_modulo () in
   if Unix.isatty Unix.stdout then begin
-      Printf.printf "You didn't redirect stdout. Error!\n";
-      Pervasives.exit 2
+    Printf.printf "You didn't redirect stdout. Error!\nUsage: (%s [mode, mode, ..]) where mode is either 'c'|'u'|'p' for unscrambled lines or an integer (count of scrambled lines)\nExample: (scramlkb c c 2 c) -> reads two plaintext lines, two scrambled lines, then one unscrambled line\n"
+      Sys.argv.(0)
+  ;  Pervasives.exit 2
   end else
     let output  s = Printf.fprintf (Unix.out_channel_of_descr Unix.stdout) "%s%!" s
     and display s = Printf.fprintf (Unix.out_channel_of_descr Unix.stderr) "%s%!" s
     and linux_cls     = "\x1b[2J"     (* clear screen:   tput clear *)
     and linux_save    = "\x1b[?1049h" (* save screen:    tput smcup *)
     and linux_restore = "\x1b[?1049l\x1b[0m" (* restore screen: rmcup *)
-    in let () = display (linux_save ^ linux_cls)
-    in let () = retrieve_key_entry ~random_char ~display ~output
-    in let () = display (linux_cls ^ linux_restore)
-    in ()
-
+    in
+    for a = 1 to (Array.length Sys.argv) - 1 do
+      let mode =
+          ( match Bytes.to_string Sys.argv.(a) with
+            | "p" | "plain" | "c" | "clear" | "u" | "unscrambled"
+                -> `Plaintext
+            | x -> `Scrambled (int_of_string x)
+          )
+      in match mode with
+      | `Plaintext ->
+        output ((input_line (in_channel_of_descr stdin)) ^ "\n")
+      | `Scrambled times ->
+        let () = display (linux_save ^ linux_cls)
+        in for i = 1 to times do 
+          retrieve_key_entry ~random_char ~display ~output
+        ; display (linux_cls ^ linux_restore)
+        done
+    done
