@@ -1,6 +1,5 @@
 open Unix
 open Printf
-open Buffer
 open String
 open Bytes
 
@@ -129,20 +128,40 @@ let () =
     and linux_save    = "\x1b[?1049h" (* save screen:    tput smcup *)
     and linux_restore = "\x1b[?1049l\x1b[0m" (* restore screen: rmcup *)
     in
-    for a = 1 to (Array.length Sys.argv) - 1 do
-      let mode =
-          ( match Bytes.to_string Sys.argv.(a) with
+    let rec parse_queue acc = function
+      | hd::tl ->
+        let mode =
+          ( match hd with
             | "p" | "plain" | "c" | "clear" | "u" | "unscrambled"
                 -> `Plaintext
             | x -> `Scrambled (int_of_string x)
           )
-      in match mode with
+        in parse_queue (mode::acc) tl
+      | [] -> List.rev acc
+    in let queue =
+      let argv =
+        if 1 = Array.length Sys.argv then
+          [ "1" ] (* default is to ask for one passphrase *)
+        else
+          List.map (Bytes.to_string)
+            (List.tl (Array.to_list Sys.argv))
+      in parse_queue [] argv
+    in
+    let rec process_queue = function
+    | hd::tl ->
+      let () =
+      begin match hd with
       | `Plaintext ->
         output ((input_line (in_channel_of_descr stdin)) ^ "\n")
       | `Scrambled times ->
-        let () = display (linux_save ^ linux_cls)
-        in for i = 1 to times do 
+        let () = display (linux_save ^ linux_cls) in
+        for i = 1 to times do 
           retrieve_key_entry ~random_char ~display ~output
         ; display (linux_cls ^ linux_restore)
         done
-    done
+      end
+      in process_queue tl
+    | [] -> ()
+    in
+      process_queue queue
+
