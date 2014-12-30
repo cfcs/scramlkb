@@ -117,11 +117,6 @@ let retrieve_key_entry ~random_char ~display ~output =
 
 let () =
   let random_char = _random_unbiased_modulo () in
-  if Unix.isatty Unix.stdout then begin
-    Printf.printf "You didn't redirect stdout. Error!\nUsage: (%s [mode, mode, ..]) where mode is either 'c'|'u'|'p' for unscrambled lines or an integer (count of scrambled lines)\nExample: (scramlkb c c 2 c) -> reads two plaintext lines, two scrambled lines, then one unscrambled line\n"
-      Sys.argv.(0)
-  ;  Pervasives.exit 2
-  end else
     let output  s = Printf.fprintf (Unix.out_channel_of_descr Unix.stdout) "%s%!" s
     and display s = Printf.fprintf (Unix.out_channel_of_descr Unix.stderr) "%s%!" s
     and linux_cls     = "\x1b[2J"     (* clear screen:   tput clear *)
@@ -134,9 +129,16 @@ let () =
           ( match hd with
             | "p" | "plain" | "c" | "clear" | "u" | "unscrambled"
                 -> `Plaintext
+            | "--watch"
+                -> `Systemdwatch
             | x -> `Scrambled (int_of_string x)
           )
-        in parse_queue (mode::acc) tl
+        in begin match mode with
+        | `Plaintext | `Scrambled _ ->
+          parse_queue (mode::acc) tl
+        | `Systemdwatch ->
+          [mode]
+        end
       | [] -> List.rev acc
     in let queue =
       let argv =
@@ -149,19 +151,53 @@ let () =
     in
     let rec process_queue = function
     | hd::tl ->
-      let () =
+      let tl =
       begin match hd with
       | `Plaintext ->
-        output ((input_line (in_channel_of_descr stdin)) ^ "\n")
+        let () = output ((input_line (in_channel_of_descr stdin)) ^ "\n")
+        in tl
       | `Scrambled times ->
         let () = display (linux_save ^ linux_cls) in
+        let () = 
         for i = 1 to times do 
           retrieve_key_entry ~random_char ~display ~output
         ; display (linux_cls ^ linux_restore)
         done
+        in tl
+      | `Systemdwatch ->
+        let open Inotify in
+        let inotify_fd = Inotify.create () in
+        let _ = Inotify.add_watch inotify_fd "/run/systemd/ask-password" [S_Close_write; S_Moved_to] in
+        let rec inotify_loop () =
+          begin try Inotify.read inotify_fd
+          with _ -> inotify_loop () end in
+        let () = (* loop forever *)
+        let rec get_password_request = function
+        | []     -> get_password_request (inotify_loop ())
+        | hd::tl ->
+          let () =
+          match hd with
+          | (_, _, _, Some file_name) when
+            (Str.first_chars file_name 4) = "ask."
+            -> print_endline file_name
+          | _ -> ()
+          in
+            get_password_request tl
+        in
+          get_password_request []
+        in []
       end
       in process_queue tl
     | [] -> ()
     in
-      process_queue queue
+      if Unix.isatty Unix.stdout &&
+        (List.fold_left (fun acc elem -> match elem with |`Systemdwatch -> false | _ -> acc) true queue)
+      then begin
+        (* display a warning if we're not using systemd and we're not redirecting the output *)
+        let () =
+        Printf.printf "You didn't redirect stdout. Error!\nUsage: (%s [mode, mode, ..]) where mode is either 'c'|'u'|'p' for unscrambled lines or an integer (count of scrambled lines)\nExample: (scramlkb c c 2 c) -> reads two plaintext lines, two scrambled lines, then one unscrambled line\n"
+        Sys.argv.(0) in 
+        Pervasives.exit 2
+      end else
+        process_queue queue
 
