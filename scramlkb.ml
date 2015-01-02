@@ -131,7 +131,7 @@ let systemd_askpassword ~display reply_socket passphrase =
   let sock = Unix.(socket PF_UNIX SOCK_DGRAM 0) in
   let () = Unix.connect sock (Unix.ADDR_UNIX reply_socket) in
   (* TODO should check that PID matches *)
-  let passphrase = "+" ^ passphrase in
+  let passphrase = "+" ^ passphrase in (* systemd: "+" means "entry was a success" *)
   let _ = Unix.send sock passphrase 0 (String.length passphrase) [] in
   Unix.(shutdown sock SHUTDOWN_ALL)
   
