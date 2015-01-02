@@ -3,6 +3,14 @@ open Printf
 open String
 open Bytes
 
+type systemd_askpassword_msg =
+  {message : string ; socket : string; error : bool}
+
+type scramlkb_operation =
+| Systemdwatch of (Inotify.event list)
+| Plaintext of ((string -> unit) * string)
+| Scrambled of ((string -> unit) * string)
+
 let rec _unbiased_modulo ~(f:unit -> char) (element_count:int) : int=
   (** returns a char -1 < c < element_count **)
   let r = int_of_char( f () ) in
@@ -35,7 +43,7 @@ let get1char () : (char)=
     Unix.tcsetattr Unix.stdin Unix.TCSADRAIN termio;
     res
 
-let display_layout ~display ~alphabet ~remapped_alphabet =
+let display_layout ~display ~alphabet ~remapped_alphabet ~prompt =
   let linux_movehome= "\x1b[H\x1b[2J"      (* move cursor home + clear *)
   and kbd_color     = "\x1b[1;33m"  (* bold; yellow *)
   and key_color     = "\x1b[2;31m"  (* dim; red *)
@@ -48,8 +56,10 @@ let display_layout ~display ~alphabet ~remapped_alphabet =
   in if (String.length alphabet) <> (String.length remapped_alphabet) then
       display "Alphabet remapping is broken in scramlkb. Please fix!"
     else
-    display (sprintf "%s%s\n%s%!"
+    display (sprintf "%s%s%s\n%s\n%s%!"
       linux_movehome
+      kbd_color
+      prompt
       (* Top line of kbd UI *)
       (sprintf "%s%s" kbd_color " ____ ____ ____ ____ ____ ____ ____ ____ ____ ____ ____ ____ ____ __________")
       ( let rec kbd_line ~offset ~acc ~sep ~color ~numkeys ~acc_end ~kbdmap = function
@@ -93,17 +103,18 @@ let fisher_yates_shuffle ~random_char remapped =
     done
     ; remapped
 
-let retrieve_key_entry ~random_char ~display ~output =
+let retrieve_key_entry ~random_char ~display ~prompt =
   let alphabet      = "~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./" in
   let rec get_char (output : string) =
     let remapped_alphabet =
       Bytes.to_string
       (fisher_yates_shuffle ~random_char (Bytes.of_string alphabet))
-    in let () = display_layout ~display ~alphabet ~remapped_alphabet
-    and     c = get1char ()
+    in
+    let () = display_layout ~display ~alphabet ~remapped_alphabet ~prompt
+    and  c = get1char ()
     in match c with
     | '\n' | '\r' -> (* enter/return - flush buffer and exit *)
-      output ^ "\n"
+      output
     | '\x7f' -> (* backspace - remove last char in buffer *)
       get_char (String.sub output 0 ((max (String.length output) 1)-1))
     | c when String.contains alphabet c ->
@@ -113,30 +124,85 @@ let retrieve_key_entry ~random_char ~display ~output =
     | c ->
       get_char (output ^ (String.make 1 c))
   in
-      output (get_char "")
+    get_char ""
+
+let systemd_askpassword ~display reply_socket passphrase =
+  let () = display ("got passphrase: '"^ passphrase ^"' -- "^ reply_socket) in
+  let sock = Unix.(socket PF_UNIX SOCK_DGRAM 0) in
+  let () = Unix.connect sock (Unix.ADDR_UNIX reply_socket) in
+  (* TODO should check that PID matches *)
+  let passphrase = "+" ^ passphrase in
+  let _ = Unix.send sock passphrase 0 (String.length passphrase) [] in
+  Unix.(shutdown sock SHUTDOWN_ALL)
+  
+let systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb =
+  let rec inotify_read () = 
+    begin
+      try Inotify.read inotify_fd
+      with _ -> inotify_read ()
+    end
+  in
+  let rec get_password_request = function
+  | []     -> get_password_request (inotify_read ()) (* get new events *)
+  | current_event :: event_tl ->
+    begin match current_event with
+    | (_, _, _, Some file_name) when
+      (Str.first_chars file_name 4) = "ask."
+      -> 
+       let blank_msg = {message = ""; socket = ""; error = true } in
+       let msg =
+       let fh = open_in (askpassword_dir ^ file_name) in
+       let rec readall acc =
+         let line = begin try input_line fh with e -> "e-o-f" end in
+         if line = "e-o-f" then acc else (* EOF *)
+         let hd, tl = let open Str in
+           let pair = Str.bounded_split (Str.regexp "=") line 2 in
+           (List.hd pair, List.tl pair)
+         in
+         let acc = begin match lowercase hd with
+         | "message" -> {acc with message = List.hd tl}
+         | "socket"  -> {acc with socket  = List.hd tl}
+         | _ -> acc
+         end in
+           readall acc
+       in
+         readall blank_msg
+     in
+       [ Scrambled ((cb msg.socket) , msg.message)
+       ; Systemdwatch event_tl] (* TODO: event_tl is always empty atm *)
+    | _ ->
+      get_password_request event_tl (* event read error *)
+    end
+  in
+    if List.length event_list <> 0 then (
+      print_endline "LOL I HAZ EVENTS";
+      [] (* enter loop *)
+    ) else 
+      get_password_request event_list (* enter loop *)
 
 let () =
   let random_char = _random_unbiased_modulo () in
     let output  s = Printf.fprintf (Unix.out_channel_of_descr Unix.stdout) "%s%!" s
-    and display s = Printf.fprintf (Unix.out_channel_of_descr Unix.stderr) "%s%!" s
+    and display s = Printf.fprintf (Unix.out_channel_of_descr Unix.stderr) "%s%!" s in
+    let output_nl s   = output (s ^ "\n")
     and linux_cls     = "\x1b[2J"     (* clear screen:   tput clear *)
     and linux_save    = "\x1b[?1049h" (* save screen:    tput smcup *)
     and linux_restore = "\x1b[?1049l\x1b[0m" (* restore screen: rmcup *)
     in
-    let rec parse_queue acc = function
+    let rec parse_cmdline_queue acc = function
       | hd::tl ->
         let mode =
           ( match hd with
             | "p" | "plain" | "c" | "clear" | "u" | "unscrambled"
-                -> `Plaintext
+                -> Plaintext (output_nl , "Enter passphrase: ")
             | "--watch"
-                -> `Systemdwatch
-            | x -> `Scrambled (int_of_string x)
+                -> Systemdwatch []
+            | x -> Scrambled (output_nl , "Enter passphrase: ")
           )
         in begin match mode with
-        | `Plaintext | `Scrambled _ ->
-          parse_queue (mode::acc) tl
-        | `Systemdwatch ->
+        | Plaintext _ | Scrambled _ ->
+          parse_cmdline_queue (mode::acc) tl
+        | Systemdwatch event_list ->
           [mode]
         end
       | [] -> List.rev acc
@@ -147,51 +213,35 @@ let () =
         else
           List.map (Bytes.to_string)
             (List.tl (Array.to_list Sys.argv))
-      in parse_queue [] argv
+      in parse_cmdline_queue [] argv
     in
     let rec process_queue = function
     | hd::tl ->
-      let tl =
+      let op_queue =
       begin match hd with
-      | `Plaintext ->
-        let () = output ((input_line (in_channel_of_descr stdin)) ^ "\n")
+      | Plaintext (callback, prompt) ->
+        let () = display prompt in
+        let () = callback ((input_line (in_channel_of_descr stdin)) ^ "\n")
         in tl
-      | `Scrambled times ->
+      | Scrambled (callback, prompt) ->
         let () = display (linux_save ^ linux_cls) in
-        let () = 
-        for i = 1 to times do 
-          retrieve_key_entry ~random_char ~display ~output
-        ; display (linux_cls ^ linux_restore)
-        done
+        let passphrase = retrieve_key_entry ~random_char ~display ~prompt in
+        let () = display (linux_cls ^ linux_restore) in
+        let () = callback passphrase
         in tl
-      | `Systemdwatch ->
+      | Systemdwatch event_list ->
         let open Inotify in
         let inotify_fd = Inotify.create () in
-        let _ = Inotify.add_watch inotify_fd "/run/systemd/ask-password" [S_Close_write; S_Moved_to] in
-        let rec inotify_loop () =
-          begin try Inotify.read inotify_fd
-          with _ -> inotify_loop () end in
-        let () = (* loop forever *)
-        let rec get_password_request = function
-        | []     -> get_password_request (inotify_loop ())
-        | hd::tl ->
-          let () =
-          match hd with
-          | (_, _, _, Some file_name) when
-            (Str.first_chars file_name 4) = "ask."
-            -> print_endline file_name
-          | _ -> ()
-          in
-            get_password_request tl
-        in
-          get_password_request []
-        in []
+        let askpassword_dir = "/run/systemd/ask-password/" in
+        let _ = Inotify.add_watch inotify_fd askpassword_dir
+          [ S_Moved_to (*TODO: ; S_Close_write;*) ] in
+        systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
       end
-      in process_queue tl
+      in process_queue op_queue
     | [] -> ()
     in
       if Unix.isatty Unix.stdout &&
-        (List.fold_left (fun acc elem -> match elem with |`Systemdwatch -> false | _ -> acc) true queue)
+        (List.fold_left (fun acc elem -> match elem with |Systemdwatch [] -> false | _ -> acc) true queue)
       then begin
         (* display a warning if we're not using systemd and we're not redirecting the output *)
         let () =
