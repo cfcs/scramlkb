@@ -6,17 +6,21 @@ Passphrase entry utility that aims to defeat hardware keyloggers and low-resolut
 **Note that this is alpha software, things may not work as expected.**
 
 <img src="./screenshot.png">
-_Explanation: `scramlkb` maps the red characters to the yellow characters displayed on the line below. The mapping is updated on each keypress by performing a Knuth (aka Fisher-Yates) shuffle of the red characters using entropy from `/dev/urandom`. The yellow keys stay in place, resembling the QWERTY keyboard layout._
 
-_Example: In the screenshot above, `2` would map to `h`; `6` -> `e`; `k` -> `y`. Thus, `26k` would render `hey`. Except the entire mapping would be randomly shuffled after the first entry of `2`, and again for each consecutive key press, of course._
+_Explanation: `scramlkb` maps the red characters to the yellow characters displayed on the line below.
+The mapping is updated on each keypress by performing a Knuth (aka Fisher-Yates) shuffle of the red characters using entropy from `/dev/urandom`.
+The yellow keys stay in place, resembling the QWERTY keyboard layout._
 
-== Features
-* systemd ask-password support, (almost working) replacement for systemd-tty-ask-password-agent (for disk passphrases on boot, ..)
+_Example: In the screenshot above, `2` would map to `h`; `6` -> `e`; `k` -> `y`.
+Thus, `26k` would render `hey`. Except the entire mapping would be randomly shuffled after the first entry of `2`, and again for each consecutive key press, of course._
+
+## Features
+* `systemd-ask-password` support, (almost working) replacement for `systemd-tty-ask-password-agent` (for disk passphrases on boot, ..)
 * mixed plaintext / scrambled entry, for menu systems
 
-== Usage
+## Usage
 
-==== systemd "Password Agents Specification"
+#### systemd "Password Agents Specification"
 
 `scramlkb` partially implements the [Free Desktop specification for password agents](http://www.freedesktop.org/wiki/Software/systemd/PasswordAgents).
 
@@ -34,7 +38,7 @@ Additional references:
 - `man systemd-ask-password`
 - `man systemd-tty-ask-password-agent`
 
-==== interactive pty mode
+#### interactive pty mode
 
 `scramlkb` can also be used in regular pseudo-ttys by calling the binary without the `--watch` parameter. This is provided to ease the use of `scramlkb` in scripts and day-to-day interactive input of sensitive data.
 
