@@ -23,7 +23,7 @@ let rec _unbiased_modulo ~(f:unit -> char) (element_count:int) : int=
 
 let _random_unbiased_modulo () : (int -> int)=
   (** opens an entropy channel and returns a reader **)
-  let random_channel = open_in_bin "/dev/random" in
+  let random_channel = open_in_bin "/dev/urandom" in
   let f () = (input_char random_channel) in
   _unbiased_modulo ~f
 
@@ -127,8 +127,9 @@ let retrieve_key_entry ~random_char ~display ~prompt =
     get_char ""
 
 let systemd_askpassword ~display reply_socket passphrase =
-  let () = display ("got passphrase: '"^ passphrase ^"' -- "^ reply_socket) in
+  (* debug: let () = display ("got passphrase: '"^ passphrase ^"' -- "^ reply_socket) in *)
   let sock = Unix.(socket PF_UNIX SOCK_DGRAM 0) in
+  (* TODO: this may fail due to permissions. solution? *)
   let () = Unix.connect sock (Unix.ADDR_UNIX reply_socket) in
   (* TODO should check that PID matches *)
   let passphrase = "+" ^ passphrase in (* systemd: "+" means "entry was a success" *)
@@ -148,37 +149,37 @@ let systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb =
     begin match current_event with
     | (_, _, _, Some file_name) when
       (Str.first_chars file_name 4) = "ask."
-      -> 
+      ->
        let blank_msg = {message = ""; socket = ""; error = true } in
-       let msg =
-       let fh = open_in (askpassword_dir ^ file_name) in
-       let rec readall acc =
-         let line = begin try input_line fh with e -> "e-o-f" end in
-         if line = "e-o-f" then acc else (* EOF *)
-         let hd, tl = let open Str in
-           let pair = Str.bounded_split (Str.regexp "=") line 2 in
-           (List.hd pair, List.tl pair)
+       let return =
+       begin try
+         let msg =
+           let fh = open_in (askpassword_dir ^ file_name) in
+           let rec readall acc =
+             let line = begin try input_line fh with e -> "e-o-f" end in
+             if line = "e-o-f" then acc else (* EOF *)
+             let hd, tl = let open Str in
+             let pair = Str.bounded_split (Str.regexp "=") line 2 in
+             (List.hd pair, List.tl pair)
+             in
+             let acc = begin match lowercase hd with
+             | "message" -> {acc with message = List.hd tl}
+             | "socket"  -> {acc with socket  = List.hd tl}
+             | _ -> acc
+             end
+             in readall acc
+           in
+             readall blank_msg
          in
-         let acc = begin match lowercase hd with
-         | "message" -> {acc with message = List.hd tl}
-         | "socket"  -> {acc with socket  = List.hd tl}
-         | _ -> acc
-         end in
-           readall acc
-       in
-         readall blank_msg
+           [Scrambled ((cb msg.socket) , msg.message)]
+       with
+       | Sys_error _ -> [] end (* TODO currently failing silently *)
      in
-       [ Scrambled ((cb msg.socket) , msg.message)
-       ; Systemdwatch event_tl] (* TODO: event_tl is always empty atm *)
+       return @ [Systemdwatch event_tl]
     | _ ->
       get_password_request event_tl (* event read error *)
     end
-  in
-    if List.length event_list <> 0 then (
-      print_endline "LOL I HAZ EVENTS";
-      [] (* enter loop *)
-    ) else 
-      get_password_request event_list (* enter loop *)
+  in get_password_request []
 
 let () =
   let random_char = _random_unbiased_modulo () in
@@ -215,6 +216,14 @@ let () =
             (List.tl (Array.to_list Sys.argv))
       in parse_cmdline_queue [] argv
     in
+
+    (* TODO only do this if we are in --watch mode: *)
+    let open Inotify in
+    let inotify_fd = Inotify.create () in
+    let askpassword_dir = "/run/systemd/ask-password/" in
+    let _ = Inotify.add_watch inotify_fd askpassword_dir
+            [ S_Moved_to ; S_Close_write ] in
+
     let rec process_queue = function
     | hd::tl ->
       let op_queue =
@@ -230,11 +239,6 @@ let () =
         let () = callback passphrase
         in tl
       | Systemdwatch event_list ->
-        let open Inotify in
-        let inotify_fd = Inotify.create () in
-        let askpassword_dir = "/run/systemd/ask-password/" in
-        let _ = Inotify.add_watch inotify_fd askpassword_dir
-          [ S_Moved_to (*TODO: ; S_Close_write;*) ] in
         systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
       end
       in process_queue op_queue
