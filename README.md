@@ -18,6 +18,12 @@ Thus, `26k` would render `hey`. Except the entire mapping would be randomly shuf
 * `systemd-ask-password` support, (almost working) replacement for `systemd-tty-ask-password-agent` (for disk passphrases on boot, ..)
 * mixed plaintext / scrambled entry, for menu systems
 
+## Similar/related tools
+- [Gridfire by reid-k](https://github.com/reid-k/gridfire), written in Python
+- [vkeyb](https://github.com/qnrq/vkeyb), written in C
+  - abandonware, you need to fix the [bias error on line 22](https://github.com/qnrq/vkeyb/blob/master/vkeyb.c#L22) by changing it from `while(r <` to `while(r >= amount_of_elements)`
+- [gpggrid](http://web.archive.org/web/20111009210604/http://tinfoilhat.shmoo.com/source/gpggrid.c), written in C for the Tinfoil Hat Linux project (discontinued) by Shmoo
+
 ## Usage
 
 #### systemd "Password Agents Specification"
