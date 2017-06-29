@@ -1,0 +1,11 @@
+Template: scramlkb/grub
+Type: boolean
+Default: false
+Description: Enable Scramlkb for cryptsetup prompt at boot time?
+ Enabling Scramlkb as a password agent for cryptsetup at boot requires
+ an appropriate kernel command line option. This can be configured
+ by setting GRUB_CMDLINE_LINUX_DEFAULT="scramlkb=1" in /etc/default/grub
+ and running grub-update.
+ .
+ If you accept here, these actions will be performed automatically and
+ Scramlkb will be enabled at next boot.
