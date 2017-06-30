@@ -27,8 +27,8 @@ esac
 
 for opt in $(cat /proc/cmdline); do
     case $opt in
-    scramlkb=)
-        if [ "${opt#scramlkb=}" == "1" ]; then
+    scramlkb=*)
+        if [ "${opt#scramlkb=}" -eq "1" ]; then
             SCRAMLKB_ENABLED=1
         fi
         ;;
@@ -39,30 +39,6 @@ unset opt
 if [ -z "$SCRAMLKB_ENABLED" ]; then
     exit 0
 fi
-
-for param in `cat /proc/cmdline`; do
-    case "$param" in
-        ip=*) IPOPTS="${param#ip=}" ;;
-        mandos=*)
-            # Split option line on commas
-            old_ifs="$IFS"
-            IFS="$IFS,"
-            for mpar in ${param#mandos=}; do
-                IFS="$old_ifs"
-                case "$mpar" in
-                    off) exit 0 ;;
-            connect) connect="" ;;
-                    connect:*) connect="${mpar#connect:}" ;;
-                    *) log_warning_msg "$0: Bad option ${mpar}" ;;
-                esac
-            done
-        unset mpar
-            IFS="$old_ifs"
-            unset old_ifs
-            ;;
-    esac
-done
-unset param
 
 test -r /conf/conf.d/cryptroot
 test -w /conf/conf.d

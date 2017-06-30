@@ -94,7 +94,7 @@ let swap arr i j =
   let temp = arr.[i] in
     Bytes.set arr i arr.[j];
     Bytes.set arr j temp
- 
+
 let fisher_yates_shuffle ~random_char remapped =
   let l = Bytes.length remapped in
     for i = (l-1) downto 1 do
@@ -135,9 +135,9 @@ let systemd_askpassword ~display reply_socket passphrase =
   let passphrase = "+" ^ passphrase in (* systemd: "+" means "entry was a success" *)
   let _ = Unix.send sock passphrase 0 (String.length passphrase) [] in
   Unix.(shutdown sock SHUTDOWN_ALL)
-  
+
 let systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb =
-  let rec inotify_read () = 
+  let rec inotify_read () =
     begin
       try Inotify.read inotify_fd
       with _ -> inotify_read ()
@@ -218,11 +218,18 @@ let () =
     in
 
     (* TODO only do this if we are in --watch mode: *)
+    let watch_mode = not (List.fold_left (fun acc elem -> match elem with |Systemdwatch [] -> false | _ -> acc) true queue) in
+
     let open Inotify in
     let inotify_fd = Inotify.create () in
-    let askpassword_dir = "/run/systemd/ask-password/" in
+    let askpassword_dir =
+      if watch_mode then
+        "/run/systemd/ask-password/"
+      else
+        "/"
+    in
     let _ = Inotify.add_watch inotify_fd askpassword_dir
-            [ S_Moved_to ; S_Close_write ] in
+              [ S_Moved_to ; S_Close_write ] in
 
     let rec process_queue = function
     | hd::tl ->
@@ -239,18 +246,21 @@ let () =
         let () = callback passphrase
         in tl
       | Systemdwatch event_list ->
-        systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
+        if watch_mode then
+          systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
+        else
+          let () = Printf.printf "SystemD watching disabled!\n"
+        in tl
       end
       in process_queue op_queue
     | [] -> ()
     in
-      if Unix.isatty Unix.stdout &&
-        (List.fold_left (fun acc elem -> match elem with |Systemdwatch [] -> false | _ -> acc) true queue)
+      if Unix.isatty Unix.stdout && not watch_mode
       then begin
         (* display a warning if we're not using systemd and we're not redirecting the output *)
         let () =
         Printf.printf "You didn't redirect stdout. Error!\nUsage: (%s [mode, mode, ..]) where mode is either 'c'|'u'|'p' for unscrambled lines or an integer (count of scrambled lines)\nExample: (scramlkb c c 2 c) -> reads two plaintext lines, two scrambled lines, then one unscrambled line\n"
-        Sys.argv.(0) in 
+        Sys.argv.(0) in
         Pervasives.exit 2
       end else
         process_queue queue
