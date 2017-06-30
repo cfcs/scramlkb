@@ -198,7 +198,7 @@ let () =
                 -> Plaintext (output_nl , "Enter passphrase: ")
             | "--watch"
                 -> Systemdwatch []
-            | x -> Scrambled (output_nl , "Enter passphrase: ")
+            | x -> Scrambled (output , "Enter passphrase: ")
           )
         in begin match mode with
         | Plaintext _ | Scrambled _ ->
