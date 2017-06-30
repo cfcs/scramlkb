@@ -40,6 +40,11 @@ if [ -z "$SCRAMLKB_ENABLED" ]; then
     exit 0
 fi
 
+# Disable any splash screen here so we will be able to see prompt
+if [ -x /bin/plymouth ] && plymouth --ping; then
+    /bin/plymouth hide-splash > /dev/null 2>&1
+fi
+
 test -r /conf/conf.d/cryptroot
 test -w /conf/conf.d
 
