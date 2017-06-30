@@ -1,0 +1,49 @@
+#!/bin/sh
+
+set -e
+
+GRUBCONF="/etc/default/grub"
+FLAG="scramlkb=1"
+
+pathfind() {
+    OLDIFS="$IFS"
+    IFS=:
+    for p in $PATH; do
+        if [ -x "$p/$*" ]; then
+            IFS="$OLDIFS"
+            return 0
+        fi
+    done
+    IFS="$OLDIFS"
+    return 1
+}
+
+case "$1" in
+    install|configure)
+        . /usr/share/debconf/confmodule
+        db_version 2.0
+        db_get scramlkb/grub
+        if [ "$RET" ]; then
+            if [ -f $GRUBCONF ] && `pathfind update-grub` && ! grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=.*$FLAG.*" $GRUBCONF; then
+                sed -e 's/^\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"$/\1 '$FLAG'"/' -e 's/=" /="/' -i $GRUBCONF && update-grub
+            else
+                echo "Not updating grub"
+            fi
+        fi
+
+        if [ -x /usr/sbin/update-initramfs ]; then
+            update-initramfs -u
+        fi
+    ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+
+    ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+    ;;
+esac
+
+#DEBHELPER#

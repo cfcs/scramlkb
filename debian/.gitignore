@@ -1,0 +1,6 @@
+debhelper-build-stamp
+*.substvars
+*.debhelper.log
+*.debhelper
+files
+/scramlkb
