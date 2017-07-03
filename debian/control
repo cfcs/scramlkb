@@ -1,0 +1,20 @@
+Source: scramlkb
+Section: admin
+Priority: extra
+Maintainer: Donncha O'Cearbhaill <donncha@donncha.is>
+Build-Depends: cdbs (>= 0.4.52),
+ debhelper (>> 5),
+ dpatch,
+ ocaml-findlib,
+ ocaml-nox,
+ dh-ocaml (>= 1.0.1),
+ libinotify-ocaml-dev [linux-any],
+Standards-Version: 3.8.3
+
+Package: scramlkb
+Architecture: linux-any
+Pre-Depends: debconf
+Depends: ${misc:Depends}, cryptsetup, initramfs-tools
+Enhances: cryptsetup
+Description: Secure cryptsetup password entry
+ Scramble the key layout for your cryptsetup password prompt.

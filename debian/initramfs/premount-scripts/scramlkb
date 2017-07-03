@@ -1,0 +1,98 @@
+#!/bin/sh -e
+#
+# This script will run in the initrd environment at boot and edit
+# /conf/conf.d/cryptroot to set /sbin/scramlkb as keyscript
+# before cryptsetup.
+#
+
+# This script should be installed as
+# "/usr/share/initramfs-tools/scripts/init-premount/scramlkb" which will
+# eventually be "/scripts/init-premount/scramlkb" in the initrd.img
+# file.
+
+PREREQ="udev"
+prereqs()
+{
+    echo "$PREREQ"
+}
+
+case $1 in
+prereqs)
+    prereqs
+    exit 0
+    ;;
+esac
+
+. /scripts/functions
+
+for opt in $(cat /proc/cmdline); do
+    case $opt in
+    scramlkb=*)
+        if [ "${opt#scramlkb=}" -eq "1" ]; then
+            SCRAMLKB_ENABLED=1
+        fi
+        ;;
+    esac
+done
+unset opt
+
+if [ -z "$SCRAMLKB_ENABLED" ]; then
+    exit 0
+fi
+
+# Disable any splash screen here so we will be able to see prompt
+if [ -x /bin/plymouth ] && plymouth --ping; then
+    /bin/plymouth hide-splash > /dev/null 2>&1
+fi
+
+test -r /conf/conf.d/cryptroot
+test -w /conf/conf.d
+
+# Do not replace cryptroot file unless we need to.
+replace_cryptroot=no
+
+# Our keyscript
+scramlkb=/sbin/scramlkb
+keyopt=1
+test -x "$scramlkb"
+
+# parse /conf/conf.d/cryptroot.  Format:
+# target=sda2_crypt,source=/dev/sda2,key=none,keyscript=/foo/bar/baz
+exec 3>/conf/conf.d/cryptroot.scramlkb
+while read -r options; do
+    newopts=""
+    # Split option line on commas
+    old_ifs="$IFS"
+    IFS="$IFS,"
+    for opt in $options; do
+    # Find the keyscript option, if any
+    case "$opt" in
+        keyscript=*)
+        keyscript="${opt#keyscript=}"
+        newopts="$newopts,$opt"
+        ;;
+        "") : ;;
+        *)
+        newopts="$newopts,$opt"
+        ;;
+    esac
+    done
+    IFS="$old_ifs"
+    unset old_ifs
+    # If there was no keyscript option, add one.
+    if [ -z "$keyscript" ]; then
+        replace_cryptroot=yes
+        newopts="$newopts,keyscript=$scramlkb,key=$keyopt"
+    fi
+    newopts="${newopts#,}"
+    echo "$newopts" >&3
+done < /conf/conf.d/cryptroot
+exec 3>&-
+
+# If we need to, replace the old cryptroot file with the new file.
+if [ "$replace_cryptroot" = yes ]; then
+    mv /conf/conf.d/cryptroot /conf/conf.d/cryptroot.scramlkb-old
+    mv /conf/conf.d/cryptroot.scramlkb /conf/conf.d/cryptroot
+else
+    rm /conf/conf.d/cryptroot.scramlkb
+fi

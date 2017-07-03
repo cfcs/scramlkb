@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+%:
+	dh $@
+
+override_dh_install:
+	dh_install
+	strip scramlkb
+	chmod 755 debian/scramlkb/usr/share/initramfs-tools/hooks/scramlkb
+	chmod 755 debian/scramlkb/usr/share/initramfs-tools/scripts/init-premount/scramlkb
+
+override_dh_auto_test:
