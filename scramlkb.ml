@@ -198,7 +198,7 @@ let () =
                 -> Plaintext (output_nl , "Enter passphrase: ")
             | "--watch"
                 -> Systemdwatch []
-            | x -> Scrambled (output_nl , "Enter passphrase: ")
+            | x -> Scrambled (output , "Enter passphrase: ")
           )
         in begin match mode with
         | Plaintext _ | Scrambled _ ->
@@ -217,10 +217,15 @@ let () =
       in parse_cmdline_queue [] argv
     in
 
-    (* TODO only do this if we are in --watch mode: *)
+    let watch_mode = List.mem (Systemdwatch []) queue in
     let open Inotify in
     let inotify_fd = Inotify.create () in
-    let askpassword_dir = "/run/systemd/ask-password/" in
+    let askpassword_dir =
+      if watch_mode then
+        "/run/systemd/ask-password/"
+      else
+        "/"
+    in
     let _ = Inotify.add_watch inotify_fd askpassword_dir
             [ S_Moved_to ; S_Close_write ] in
 
@@ -239,13 +244,16 @@ let () =
         let () = callback passphrase
         in tl
       | Systemdwatch event_list ->
-        systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
+        if watch_mode then
+          systemd_loopforever ~askpassword_dir ~inotify_fd ~event_list ~cb:(systemd_askpassword ~display)
+        else
+          let () = Printf.printf "SystemD watching disabled!\n"
+        in tl
       end
       in process_queue op_queue
     | [] -> ()
     in
-      if Unix.isatty Unix.stdout &&
-        (List.fold_left (fun acc elem -> match elem with |Systemdwatch [] -> false | _ -> acc) true queue)
+      if Unix.isatty Unix.stdout && not watch_mode
       then begin
         (* display a warning if we're not using systemd and we're not redirecting the output *)
         let () =

@@ -1,4 +1,4 @@
-scramlkb
+/scramlkb
 *.native
 .*.swp
 _build
