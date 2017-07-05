@@ -7,10 +7,6 @@ OCAMLOPT = ocamlopt
 
 OCAMLOPTFLAGS=-package inotify,unix,bytes,str
 
-OCAMLABI := $(shell ocamlc -version)
-OCAMLLIBDIR := $(shell ocamlc -where)
-OCAMLDESTDIR ?= $(OCAMLLIBDIR)
-
 PROGRAMS = scramlkb
 
 PKG_NAME = scramlkb
